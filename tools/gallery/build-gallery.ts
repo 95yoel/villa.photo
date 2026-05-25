@@ -1,0 +1,260 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import process from 'node:process';
+import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { fromIni } from '@aws-sdk/credential-providers';
+import { encode } from 'blurhash';
+import dotenv from 'dotenv';
+import fg from 'fast-glob';
+import sharp from 'sharp';
+import type { Photo, PhotoCategory } from '../../src/app/models/photo.model';
+
+dotenv.config();
+
+const PROJECT_ROOT = process.cwd();
+const INPUT_DIR = path.join(PROJECT_ROOT, 'tools', 'gallery', 'input');
+const OUTPUT_DIR = path.join(PROJECT_ROOT, 'tools', 'gallery', 'output');
+const PUBLIC_JSON_PATH = path.join(PROJECT_ROOT, 'public', 'photos.json');
+const OUTPUT_JSON_PATH = path.join(OUTPUT_DIR, 'photos.json');
+
+const MAX_WIDTH = 2400;
+const WEBP_QUALITY = 86;
+const BLURHASH_SIZE = 32;
+const BLURHASH_COMPONENT_X = 4;
+const BLURHASH_COMPONENT_Y = 3;
+const VALID_CATEGORIES: PhotoCategory[] = ['costa', 'montana', 'nocturnas', 'ciudad'];
+
+type EnvConfig = {
+  awsProfile: string;
+  awsRegion: string;
+  s3Bucket: string;
+  cdnBaseUrl: string;
+};
+
+type ParsedFilename = {
+  slug: string;
+  title: string;
+  category: PhotoCategory;
+  location: string;
+};
+
+async function main(): Promise<void> {
+  const env = readEnv();
+
+  console.log('[gallery] Starting gallery build');
+  console.log(`[gallery] Reading from ${INPUT_DIR}`);
+
+  await mkdir(OUTPUT_DIR, { recursive: true });
+
+  const inputFiles = await fg(['*.jpg', '*.jpeg', '*.png', '*.webp', '*.tif', '*.tiff'], {
+    cwd: INPUT_DIR,
+    absolute: true,
+    caseSensitiveMatch: false
+  });
+
+  if (inputFiles.length === 0) {
+    throw new Error(`No images found in ${INPUT_DIR}`);
+  }
+
+  const s3Client = new S3Client({
+    region: env.awsRegion,
+    credentials: fromIni({ profile: env.awsProfile })
+  });
+
+  const photos: Photo[] = [];
+
+  for (const inputFile of inputFiles.sort()) {
+    const photo = await processImage(inputFile, env, s3Client);
+    photos.push(photo);
+  }
+
+  const serializedPhotos = `${JSON.stringify(photos, null, 2)}\n`;
+
+  await writeFile(PUBLIC_JSON_PATH, serializedPhotos, 'utf8');
+  await writeFile(OUTPUT_JSON_PATH, serializedPhotos, 'utf8');
+
+  await uploadBuffer(
+    s3Client,
+    env.s3Bucket,
+    'photos.json',
+    Buffer.from(serializedPhotos, 'utf8'),
+    'application/json; charset=utf-8'
+  );
+
+  console.log(`[gallery] Wrote ${PUBLIC_JSON_PATH}`);
+  console.log(`[gallery] Wrote ${OUTPUT_JSON_PATH}`);
+  console.log(`[gallery] Uploaded s3://${env.s3Bucket}/photos.json`);
+  console.log('[gallery] Done');
+}
+
+function readEnv(): EnvConfig {
+  const awsProfile = process.env.AWS_PROFILE?.trim();
+  const awsRegion = process.env.AWS_REGION?.trim();
+  const s3Bucket = process.env.S3_BUCKET?.trim();
+  const cdnBaseUrl = process.env.CDN_BASE_URL?.trim().replace(/\/+$/, '');
+
+  const missing = [
+    !awsProfile ? 'AWS_PROFILE' : null,
+    !awsRegion ? 'AWS_REGION' : null,
+    !s3Bucket ? 'S3_BUCKET' : null,
+    !cdnBaseUrl ? 'CDN_BASE_URL' : null
+  ].filter(Boolean);
+
+  if (missing.length > 0) {
+    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  }
+
+  return {
+    awsProfile: awsProfile!,
+    awsRegion: awsRegion!,
+    s3Bucket: s3Bucket!,
+    cdnBaseUrl: cdnBaseUrl!
+  };
+}
+
+async function processImage(
+  inputFile: string,
+  env: EnvConfig,
+  s3Client: S3Client
+): Promise<Photo> {
+  const fileName = path.basename(inputFile);
+  const parsedFile = parseFilename(fileName);
+  const outputFileName = `${parsedFile.slug}.webp`;
+  const outputFilePath = path.join(OUTPUT_DIR, outputFileName);
+  const s3Key = `photos/${outputFileName}`;
+
+  console.log(`[gallery] Processing ${fileName}`);
+
+  const processedBuffer = await sharp(inputFile)
+    .rotate()
+    .resize({ width: MAX_WIDTH, withoutEnlargement: true })
+    .webp({ quality: WEBP_QUALITY })
+    .toBuffer();
+
+  await writeFile(outputFilePath, processedBuffer);
+
+  const metadata = await sharp(processedBuffer).metadata();
+  const width = metadata.width ?? 0;
+  const height = metadata.height ?? 0;
+
+  if (!width || !height) {
+    throw new Error(`Could not read dimensions for ${fileName}`);
+  }
+
+  const blurhash = await createBlurhash(processedBuffer);
+  const dominantColor = await createDominantColor(processedBuffer);
+
+  await uploadBuffer(s3Client, env.s3Bucket, s3Key, processedBuffer, 'image/webp');
+
+  console.log(`[gallery] Uploaded s3://${env.s3Bucket}/${s3Key}`);
+
+  return {
+    id: parsedFile.slug,
+    slug: parsedFile.slug,
+    title: parsedFile.title,
+    category: parsedFile.category,
+    location: parsedFile.location,
+    src: `${env.cdnBaseUrl}/${s3Key}`,
+    thumb: `${env.cdnBaseUrl}/${s3Key}`,
+    alt: `${parsedFile.title} en ${parsedFile.location}`,
+    width,
+    height,
+    blurhash,
+    dominantColor
+  };
+}
+
+function parseFilename(fileName: string): ParsedFilename {
+  const extension = path.extname(fileName);
+  const baseName = path.basename(fileName, extension);
+  const [titleSegment, categorySegment, locationSegment, ...rest] = baseName.split('_');
+
+  if (!titleSegment || !categorySegment || !locationSegment || rest.length > 0) {
+    throw new Error(
+      `Invalid filename "${fileName}". Expected format titulo-con-guiones_categoria_location.jpg`
+    );
+  }
+
+  const category = categorySegment.toLowerCase() as PhotoCategory;
+
+  if (!VALID_CATEGORIES.includes(category)) {
+    throw new Error(
+      `Invalid category "${categorySegment}" in "${fileName}". Valid categories: ${VALID_CATEGORIES.join(', ')}`
+    );
+  }
+
+  const slug = normalizeSlug(titleSegment);
+
+  return {
+    slug,
+    title: toDisplayText(titleSegment),
+    category,
+    location: toDisplayText(locationSegment)
+  };
+}
+
+function normalizeSlug(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+function toDisplayText(value: string): string {
+  return value
+    .split('-')
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
+async function createBlurhash(imageBuffer: Buffer): Promise<string> {
+  const { data, info } = await sharp(imageBuffer)
+    .resize(BLURHASH_SIZE, BLURHASH_SIZE, { fit: 'inside' })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  return encode(
+    new Uint8ClampedArray(data),
+    info.width,
+    info.height,
+    BLURHASH_COMPONENT_X,
+    BLURHASH_COMPONENT_Y
+  );
+}
+
+async function createDominantColor(imageBuffer: Buffer): Promise<string> {
+  const stats = await sharp(imageBuffer).stats();
+  const dominant = stats.dominant;
+
+  return `#${[dominant.r, dominant.g, dominant.b]
+    .map((channel) => Math.round(channel).toString(16).padStart(2, '0'))
+    .join('')}`;
+}
+
+async function uploadBuffer(
+  s3Client: S3Client,
+  bucket: string,
+  key: string,
+  body: Buffer,
+  contentType: string
+): Promise<void> {
+  await s3Client.send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: body,
+      ContentType: contentType
+    })
+  );
+}
+
+main().catch((error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`[gallery] Build failed: ${message}`);
+  process.exitCode = 1;
+});

@@ -1,0 +1,133 @@
+<header class="site-header">
+  <div class="brand-block">
+    <p class="brand-kicker">Yoel Villa</p>
+    <a class="brand-title" href="#" (click)="$event.preventDefault(); scrollToHome()">villa.photos</a>
+  </div>
+
+  <nav class="site-nav" aria-label="Secciones principales">
+    @for (item of navItems; track item.id) {
+      <button
+        type="button"
+        class="nav-link"
+        [class.is-active]="item.id === activeView"
+        [class.is-contact]="item.id === 'contacto'"
+        (click)="handleNavClick(item)"
+      >
+        {{ item.label }}
+      </button>
+    }
+  </nav>
+</header>
+
+<main class="page-shell">
+  @if (activeView === 'home') {
+    <section class="hero-section hero-section-home" aria-labelledby="home-title">
+      <div class="hero-copy">
+        <p class="section-kicker">Home</p>
+        <h1 id="home-title">Fotografía de paisaje.</h1>
+      </div>
+    </section>
+  }
+
+  <section class="gallery-section" aria-labelledby="gallery-title">
+    @if (activeView !== 'home') {
+      <div class="section-heading">
+        <div>
+          <p class="section-kicker">Galería</p>
+          <h2 id="gallery-title">{{ viewTitles[activeView] }}</h2>
+        </div>
+      </div>
+    }
+
+    @if (isLoading) {
+      <div class="status-panel">
+        <p>Cargando fotografías...</p>
+      </div>
+    } @else if (loadError) {
+      <div class="status-panel is-error">
+        <p>No se pudo cargar <code>photos.json</code>.</p>
+      </div>
+    } @else {
+      <div class="masonry-grid">
+        @for (photo of visiblePhotos; track trackByPhotoId($index, photo)) {
+          <article class="photo-card">
+            <figure
+              (click)="openPhoto(photo)"
+              tabindex="0"
+              role="button"
+              (keydown.enter)="openPhoto(photo)"
+              (keydown.space)="openPhoto(photo); $event.preventDefault()"
+            >
+              <img
+                [src]="photo.thumb"
+                [alt]="photo.alt"
+                loading="lazy"
+              />
+              <figcaption>
+                <h3>{{ photo.title }}</h3>
+                <p>{{ photo.location }}</p>
+              </figcaption>
+            </figure>
+          </article>
+        }
+      </div>
+
+      @if (hasMorePhotos) {
+        <div class="load-more-wrap">
+          <button type="button" class="load-more-button" (click)="loadMorePhotos()" aria-label="Cargar más fotos">
+            +
+          </button>
+        </div>
+      }
+    }
+  </section>
+</main>
+
+@if (selectedPhoto) {
+  <app-photo-viewer [photo]="selectedPhoto" (close)="closePhoto()" />
+}
+
+<footer class="site-footer" id="contacto">
+  <div class="footer-content">
+    <div>
+      <p class="section-kicker">Contacto</p>
+    </div>
+
+    <div class="footer-columns">
+      <div>
+        <p class="footer-label">Email</p>
+        <div class="contact-line">
+          <a href="mailto:hola@villa.photos">hola&#64;villa.photos</a>
+          <button type="button" class="copy-button" (click)="copyText('hola@villa.photos', 'email')">
+            {{ copiedField === 'email' ? 'Copiado' : 'Copiar' }}
+          </button>
+        </div>
+      </div>
+      <div>
+        <p class="footer-label">Instagram</p>
+        <div class="contact-line">
+          <a href="https://instagram.com" target="_blank" rel="noreferrer">instagram.com/villa.photos</a>
+          <button
+            type="button"
+            class="copy-button"
+            (click)="copyText('https://instagram.com/villa.photos', 'instagram')"
+          >
+            {{ copiedField === 'instagram' ? 'Copiado' : 'Copiar' }}
+          </button>
+        </div>
+      </div>
+      <div>
+        <p class="footer-label">Base</p>
+        <p>Asturias, España</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-signoff">
+    <hr class="footer-signoff-line" />
+    <p>
+      Desarrollada por
+      <a href="https://yoelvilla.dev/" target="_blank" rel="noreferrer">yoelvilla.dev</a>
+    </p>
+  </div>
+</footer>

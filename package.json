@@ -6,7 +6,8 @@
     "start": "ng serve",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "ng test"
+    "test": "ng test",
+    "build-gallery": "tsx tools/gallery/build-gallery.ts"
   },
   "private": true,
   "dependencies": {
@@ -17,7 +18,13 @@
     "@angular/platform-browser": "^19.2.0",
     "@angular/platform-browser-dynamic": "^19.2.0",
     "@angular/router": "^19.2.0",
+    "@aws-sdk/client-s3": "^3.1053.0",
+    "@aws-sdk/credential-providers": "^3.1053.0",
+    "blurhash": "^2.0.5",
+    "dotenv": "^17.4.2",
+    "fast-glob": "^3.3.3",
     "rxjs": "~7.8.0",
+    "sharp": "^0.34.5",
     "tslib": "^2.3.0",
     "zone.js": "~0.15.0"
   },
@@ -32,6 +39,7 @@
     "karma-coverage": "~2.2.0",
     "karma-jasmine": "~5.1.0",
     "karma-jasmine-html-reporter": "~2.1.0",
+    "tsx": "^4.22.3",
     "typescript": "~5.7.2"
   }
 }

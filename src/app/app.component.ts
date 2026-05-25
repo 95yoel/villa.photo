@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, HostListener } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 
 @Component({
@@ -8,5 +8,8 @@ import { RouterOutlet } from '@angular/router';
   styleUrl: './app.component.css'
 })
 export class AppComponent {
-  title = 'villa.photos';
+  @HostListener('document:contextmenu', ['$event'])
+  protected blockContextMenu(event: MouseEvent): void {
+    event.preventDefault();
+  }
 }

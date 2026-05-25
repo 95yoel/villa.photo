@@ -36,6 +36,10 @@ yarn-error.log
 /libpeerconnection.log
 testem.log
 /typings
+.env
+/tools/gallery/input/*
+!/tools/gallery/input/.gitkeep
+/tools/gallery/output/
 
 # System files
 .DS_Store

@@ -1,1 +1,81 @@
-/* You can add global styles to this file, and also import other style files */
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Manrope:wght@400;500;600;700&display=swap');
+
+:root {
+  --color-background-base: #1f1f1f;
+  --color-background-elevated: #292929;
+  --color-surface-strong: #333333;
+  --color-surface-panel: #3b3b3b;
+  --color-border-subtle: rgba(255, 255, 255, 0.1);
+  --color-border-strong: rgba(255, 255, 255, 0.24);
+  --color-text-primary: #f4f1ea;
+  --color-text-secondary: rgba(244, 241, 234, 0.78);
+  --color-text-muted: rgba(244, 241, 234, 0.52);
+  --color-accent-soft: #d2b48c;
+
+  --font-family-base: 'Manrope', 'Segoe UI', sans-serif;
+  --font-family-display: 'Cormorant Garamond', Georgia, serif;
+
+  --content-max-width: 1440px;
+  --page-side-spacing: clamp(1rem, 2vw, 2rem);
+  --header-height: 72px;
+  --footer-min-height: 42vh;
+
+  --radius-medium: 18px;
+  --radius-large: 28px;
+
+  --shadow-soft: 0 18px 40px rgba(0, 0, 0, 0.22);
+  --transition-base: 220ms ease;
+
+  color-scheme: dark;
+  scroll-behavior: smooth;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  margin: 0;
+  min-height: 100%;
+  background: var(--color-background-base);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: var(--font-family-base);
+  color: var(--color-text-primary);
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.07), transparent 30%),
+    linear-gradient(180deg, var(--color-background-elevated), var(--color-background-base) 24%, #181818 100%);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+img {
+  max-width: 100%;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+a,
+button {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+code {
+  font-family: 'Consolas', 'Courier New', monospace;
+  color: var(--color-text-primary);
+}

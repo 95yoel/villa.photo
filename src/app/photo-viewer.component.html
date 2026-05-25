@@ -1,0 +1,16 @@
+<div class="viewer-backdrop" (click)="onBackdropClick()">
+  <section class="viewer-shell" (click)="$event.stopPropagation()" aria-modal="true" role="dialog">
+    <button type="button" class="viewer-close" (click)="onCloseClick()" aria-label="Cerrar imagen">
+      X
+    </button>
+
+    <div class="viewer-media">
+      <img [src]="photo().src" [alt]="photo().alt" />
+    </div>
+
+    <div class="viewer-meta">
+      <h2>{{ photo().title }}</h2>
+      <p>{{ photo().location }}</p>
+    </div>
+  </section>
+</div>
