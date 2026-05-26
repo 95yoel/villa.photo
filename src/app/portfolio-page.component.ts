@@ -1,4 +1,4 @@
-import { CommonModule, DOCUMENT } from '@angular/common';
+import { CommonModule, DOCUMENT, Location } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import {
   AfterViewInit,
@@ -29,6 +29,7 @@ interface NavItem {
 })
 export class PortfolioPageComponent implements AfterViewInit {
   private readonly http = inject(HttpClient);
+  private readonly location = inject(Location);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
 
@@ -141,16 +142,18 @@ export class PortfolioPageComponent implements AfterViewInit {
 
   protected openPhoto(photo: Photo): void {
     this.selectedPhoto = photo;
-    this.router.navigate(['/foto', photo.slug], {
-      queryParams: { view: this.activeView }
-    });
+    this.location.go(
+      this.createPhotoUrl(photo.slug),
+      `view=${encodeURIComponent(this.activeView)}`
+    );
   }
 
   protected closePhoto(): void {
     this.selectedPhoto = null;
-    this.router.navigate(['/'], {
-      queryParams: this.activeView === 'home' ? {} : { view: this.activeView }
-    });
+    this.location.go(
+      '/',
+      this.activeView === 'home' ? '' : `view=${encodeURIComponent(this.activeView)}`
+    );
   }
 
   protected async copyText(
@@ -252,5 +255,9 @@ export class PortfolioPageComponent implements AfterViewInit {
 
   private isGalleryKey(value: string): value is GalleryKey {
     return ['home', 'costa', 'montana', 'nocturnas', 'ciudad'].includes(value);
+  }
+
+  private createPhotoUrl(slug: string): string {
+    return `/foto/${encodeURIComponent(slug)}`;
   }
 }
