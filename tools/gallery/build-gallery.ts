@@ -1,7 +1,7 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { fromIni } from '@aws-sdk/credential-providers';
 import { encode } from 'blurhash';
 import dotenv from 'dotenv';
@@ -43,6 +43,10 @@ type ParsedFilename = {
   location: string;
 };
 
+type GalleryPhoto = Photo & {
+  sourceSizeBytes: number;
+};
+
 async function main(): Promise<void> {
   const env = readEnv();
 
@@ -67,10 +71,32 @@ async function main(): Promise<void> {
     credentials: fromIni({ profile: env.awsProfile })
   });
 
-  const photos: Photo[] = [];
+  const existingPhotos = await readExistingPhotosManifest(s3Client, env.s3Bucket);
+  const existingPhotosBySlug = new Map(
+    existingPhotos.map((photo) => [photo.slug, photo])
+  );
+  const photos: GalleryPhoto[] = [];
 
   for (const inputFile of inputFiles.sort()) {
-    const photo = await processImage(inputFile, env, s3Client);
+    const fileName = path.basename(inputFile);
+    const parsedFile = parseFilename(fileName);
+    const sourceSizeBytes = (await stat(inputFile)).size;
+    const existingPhoto = existingPhotosBySlug.get(parsedFile.slug);
+    const s3Key = `photos/${parsedFile.slug}.webp`;
+
+    if (existingPhoto?.sourceSizeBytes === sourceSizeBytes) {
+      console.log(`[gallery] Skipping ${fileName}; source file is unchanged`);
+      photos.push(createPhotoFromExisting(parsedFile, existingPhoto, env, s3Key));
+      continue;
+    }
+
+    const photo = await processImage(
+      inputFile,
+      parsedFile,
+      sourceSizeBytes,
+      env,
+      s3Client
+    );
     photos.push(photo);
   }
 
@@ -117,13 +143,65 @@ function readEnv(): EnvConfig {
   };
 }
 
+async function readExistingPhotosManifest(
+  s3Client: S3Client,
+  bucket: string
+): Promise<GalleryPhoto[]> {
+  try {
+    const response = await s3Client.send(
+      new GetObjectCommand({
+        Bucket: bucket,
+        Key: 'photos.json'
+      })
+    );
+    const body = response.Body as
+      | { transformToString(): Promise<string> }
+      | undefined;
+
+    if (!body) {
+      return [];
+    }
+
+    const serializedPhotos = await body.transformToString();
+    const photos = JSON.parse(serializedPhotos) as Partial<GalleryPhoto>[];
+
+    return photos.filter(isReusableGalleryPhoto);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    console.log(`[gallery] Could not reuse existing photos.json: ${message}`);
+    console.log('[gallery] Processing all input images');
+
+    return [];
+  }
+}
+
+function isReusableGalleryPhoto(photo: Partial<GalleryPhoto>): photo is GalleryPhoto {
+  return (
+    typeof photo.id === 'string' &&
+    typeof photo.slug === 'string' &&
+    typeof photo.title === 'string' &&
+    typeof photo.category === 'string' &&
+    typeof photo.location === 'string' &&
+    typeof photo.src === 'string' &&
+    typeof photo.thumb === 'string' &&
+    typeof photo.alt === 'string' &&
+    typeof photo.width === 'number' &&
+    typeof photo.height === 'number' &&
+    typeof photo.blurhash === 'string' &&
+    typeof photo.dominantColor === 'string' &&
+    typeof photo.sourceSizeBytes === 'number'
+  );
+}
+
 async function processImage(
   inputFile: string,
+  parsedFile: ParsedFilename,
+  sourceSizeBytes: number,
   env: EnvConfig,
   s3Client: S3Client
-): Promise<Photo> {
+): Promise<GalleryPhoto> {
   const fileName = path.basename(inputFile);
-  const parsedFile = parseFilename(fileName);
   const outputFileName = `${parsedFile.slug}.webp`;
   const outputFilePath = path.join(OUTPUT_DIR, outputFileName);
   const s3Key = `photos/${outputFileName}`;
@@ -171,7 +249,27 @@ async function processImage(
     width,
     height,
     blurhash,
-    dominantColor
+    dominantColor,
+    sourceSizeBytes
+  };
+}
+
+function createPhotoFromExisting(
+  parsedFile: ParsedFilename,
+  existingPhoto: GalleryPhoto,
+  env: EnvConfig,
+  s3Key: string
+): GalleryPhoto {
+  return {
+    ...existingPhoto,
+    id: parsedFile.slug,
+    slug: parsedFile.slug,
+    title: parsedFile.title,
+    category: parsedFile.category,
+    location: parsedFile.location,
+    src: `${env.cdnBaseUrl}/${s3Key}`,
+    thumb: `${env.cdnBaseUrl}/${s3Key}`,
+    alt: `${parsedFile.title} en ${parsedFile.location}`
   };
 }
 
