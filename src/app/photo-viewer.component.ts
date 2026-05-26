@@ -23,10 +23,12 @@ export class PhotoViewerComponent {
   readonly next = output<void>();
 
   protected loadedPhotoId: string | null = null;
+  protected shareState: 'idle' | 'copied' | 'failed' = 'idle';
 
   private touchStartX: number | null = null;
   private touchStartY: number | null = null;
   private readonly blurhashCache = new Map<string, string>();
+  private shareStateTimeout: number | null = null;
 
   private readonly minSwipeDistance = 48;
   private readonly maxVerticalSwipeDrift = 80;
@@ -75,6 +77,34 @@ export class PhotoViewerComponent {
 
   protected onNextClick(): void {
     this.next.emit();
+  }
+
+  protected async onShareClick(): Promise<void> {
+    const photo = this.photo();
+    const shareUrl = this.document.defaultView?.location.href ?? '';
+    const shareData: ShareData = {
+      title: photo.title,
+      text: `${photo.title} - ${photo.location}`,
+      url: shareUrl
+    };
+
+    this.shareState = 'idle';
+
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+        return;
+      }
+
+      await navigator.clipboard.writeText(shareUrl);
+      this.setTemporaryShareState('copied');
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return;
+      }
+
+      this.setTemporaryShareState('failed');
+    }
   }
 
   protected getPhotoPlaceholder(photo: Photo): string {
@@ -164,5 +194,18 @@ export class PhotoViewerComponent {
   private resetTouchStart(): void {
     this.touchStartX = null;
     this.touchStartY = null;
+  }
+
+  private setTemporaryShareState(state: 'copied' | 'failed'): void {
+    this.shareState = state;
+
+    if (this.shareStateTimeout !== null) {
+      window.clearTimeout(this.shareStateTimeout);
+    }
+
+    this.shareStateTimeout = window.setTimeout(() => {
+      this.shareState = 'idle';
+      this.shareStateTimeout = null;
+    }, 1600);
   }
 }

@@ -25,19 +25,42 @@
   gap: 0.55rem;
 }
 
-.viewer-close {
+.viewer-actions {
   position: absolute;
   top: 0;
   right: 0;
   z-index: 3;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.viewer-action {
   width: 3rem;
   height: 3rem;
-  border: 0;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 999px;
   background: transparent;
   color: var(--color-text-primary);
   font-family: var(--font-family-base);
-  font-size: 1.4rem;
+  font-size: 1rem;
+  line-height: 1;
   cursor: pointer;
+  transition:
+    color var(--transition-base),
+    background var(--transition-base),
+    border-color var(--transition-base);
+}
+
+.viewer-action:hover,
+.viewer-action.is-active {
+  color: var(--color-text-primary);
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--color-border-strong);
+}
+
+.viewer-action:focus-visible {
+  outline: 2px solid var(--color-accent-soft);
+  outline-offset: 3px;
 }
 
 .viewer-nav {

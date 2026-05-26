@@ -1,8 +1,26 @@
 <div class="viewer-backdrop" (click)="onBackdropClick()">
   <section class="viewer-shell" (click)="$event.stopPropagation()" aria-modal="true" role="dialog">
-    <button type="button" class="viewer-close" (click)="onCloseClick()" aria-label="Cerrar imagen">
-      X
-    </button>
+    <div class="viewer-actions">
+      <button type="button" class="viewer-action" (click)="onCloseClick()" aria-label="Cerrar imagen">
+        X
+      </button>
+
+      <button
+        type="button"
+        class="viewer-action"
+        [class.is-active]="shareState !== 'idle'"
+        (click)="onShareClick()"
+        [attr.aria-label]="shareState === 'copied' ? 'Enlace copiado' : 'Compartir imagen'"
+      >
+        @if (shareState === 'copied') {
+          OK
+        } @else if (shareState === 'failed') {
+          !
+        } @else {
+          &#x2197;
+        }
+      </button>
+    </div>
 
     <div
       class="viewer-media"
