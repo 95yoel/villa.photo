@@ -189,6 +189,7 @@ figcaption p {
 }
 
 .photo-card figure {
+  position: relative;
   display: flex;
   flex-direction: column;
   margin: 0;
@@ -203,16 +204,41 @@ figcaption p {
   max-width: 100%;
 }
 
+.photo-placeholder {
+  position: absolute;
+  inset: 0 0 4.5rem;
+  background-color: var(--color-surface-panel);
+  background-image: var(--photo-placeholder);
+  background-size: cover;
+  background-position: center;
+  filter: blur(16px) saturate(1.08);
+  transform: scale(1.08);
+  opacity: 1;
+  transition: opacity 420ms ease;
+  pointer-events: none;
+}
+
+.photo-placeholder.is-hidden {
+  opacity: 0;
+}
+
 .photo-card img {
+  position: relative;
   display: block;
   width: auto;
   height: calc(100% - 4.5rem);
   object-fit: contain;
   object-position: center;
-  background: var(--color-surface-panel);
+  background: transparent;
+  opacity: 0;
   transition:
+    opacity 320ms ease,
     transform 320ms ease,
     filter 320ms ease;
+}
+
+.photo-card img.is-loaded {
+  opacity: 1;
 }
 
 .photo-card:hover img {

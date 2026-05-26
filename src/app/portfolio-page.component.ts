@@ -2,12 +2,17 @@ import { CommonModule, DOCUMENT, Location } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import {
   AfterViewInit,
+  ChangeDetectorRef,
   Component,
+  ElementRef,
   HostListener,
   Inject,
+  QueryList,
+  ViewChildren,
   inject
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
+import { decode } from 'blurhash';
 import { firstValueFrom } from 'rxjs';
 import { Photo, PhotoCategory } from './models/photo.model';
 import { PhotoViewerComponent } from './photo-viewer.component';
@@ -32,6 +37,7 @@ export class PortfolioPageComponent implements AfterViewInit {
   private readonly location = inject(Location);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  private readonly changeDetector = inject(ChangeDetectorRef);
 
   protected readonly navItems: NavItem[] = [
     { id: 'home', label: 'Home' },
@@ -53,6 +59,7 @@ export class PortfolioPageComponent implements AfterViewInit {
   protected readonly batchSize = 8;
   protected readonly initialVisibleCount = 10;
   protected readonly maxAutoLoads = 2;
+  protected readonly highPriorityPhotoCount = 4;
 
   protected activeView: GalleryKey = 'home';
   protected photos: Photo[] = [];
@@ -64,12 +71,31 @@ export class PortfolioPageComponent implements AfterViewInit {
   protected copiedField: 'email' | 'instagram' | null = null;
 
   private isNavigatingToContact = false;
+  private readonly blurhashCache = new Map<string, string>();
+  private readonly loadedPhotoIds = new Set<string>();
+  private readonly loadablePhotoIds = new Set<string>();
+  private readonly observedPhotoIds = new Set<string>();
+  private readonly preloadedImageUrls = new Set<string>();
+  private intersectionObserver: IntersectionObserver | null = null;
+
+  @ViewChildren('photoCardFigure', { read: ElementRef })
+  private readonly photoCardFigures?: QueryList<ElementRef<HTMLElement>>;
 
   constructor(@Inject(DOCUMENT) private readonly document: Document) {}
 
   async ngAfterViewInit(): Promise<void> {
     await this.loadPhotos();
     this.syncStateFromRoute();
+    this.queueInitialPhotos();
+    this.createIntersectionObserver();
+    this.observeRenderedPhotos();
+    this.photoCardFigures?.changes.subscribe(() => this.observeRenderedPhotos());
+    this.preloadUpcomingGalleryPhotos();
+    window.setTimeout(() => this.observeRenderedPhotos());
+
+    if (this.selectedPhoto) {
+      this.preloadAdjacentViewerPhotos(this.selectedPhoto);
+    }
   }
 
   protected get filteredPhotos(): Photo[] {
@@ -92,6 +118,11 @@ export class PortfolioPageComponent implements AfterViewInit {
     this.activeView = view;
     this.visibleCount = this.initialVisibleCount;
     this.autoLoadsUsed = 0;
+    this.queueInitialPhotos();
+    window.setTimeout(() => {
+      this.observeRenderedPhotos();
+      this.preloadUpcomingGalleryPhotos();
+    });
     this.syncQueryView();
   }
 
@@ -99,6 +130,11 @@ export class PortfolioPageComponent implements AfterViewInit {
     this.activeView = 'home';
     this.visibleCount = this.initialVisibleCount;
     this.autoLoadsUsed = 0;
+    this.queueInitialPhotos();
+    window.setTimeout(() => {
+      this.observeRenderedPhotos();
+      this.preloadUpcomingGalleryPhotos();
+    });
     this.syncQueryView();
     this.document.defaultView?.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -138,10 +174,15 @@ export class PortfolioPageComponent implements AfterViewInit {
       this.visibleCount + this.batchSize,
       this.filteredPhotos.length
     );
+    window.setTimeout(() => {
+      this.observeRenderedPhotos();
+      this.preloadUpcomingGalleryPhotos();
+    });
   }
 
   protected openPhoto(photo: Photo): void {
     this.selectedPhoto = photo;
+    this.preloadAdjacentViewerPhotos(photo);
     this.location.go(
       this.createPhotoUrl(photo.slug),
       `view=${encodeURIComponent(this.activeView)}`
@@ -154,6 +195,14 @@ export class PortfolioPageComponent implements AfterViewInit {
       '/',
       this.activeView === 'home' ? '' : `view=${encodeURIComponent(this.activeView)}`
     );
+  }
+
+  protected showPreviousPhoto(): void {
+    this.showAdjacentPhoto(-1);
+  }
+
+  protected showNextPhoto(): void {
+    this.showAdjacentPhoto(1);
   }
 
   protected async copyText(
@@ -198,6 +247,60 @@ export class PortfolioPageComponent implements AfterViewInit {
 
   protected trackByPhotoId(_: number, photo: Photo): string {
     return photo.id;
+  }
+
+  protected getPhotoPlaceholder(photo: Photo): string {
+    const cachedPlaceholder = this.blurhashCache.get(photo.id);
+
+    if (cachedPlaceholder) {
+      return cachedPlaceholder;
+    }
+
+    try {
+      const width = 32;
+      const height = Math.max(1, Math.round(width * (photo.height / photo.width)));
+      const pixels = decode(photo.blurhash, width, height);
+      const canvas = this.document.createElement('canvas');
+      const context = canvas.getContext('2d');
+
+      canvas.width = width;
+      canvas.height = height;
+
+      if (!context) {
+        return '';
+      }
+
+      const imageData = context.createImageData(width, height);
+      imageData.data.set(pixels);
+      context.putImageData(imageData, 0, 0);
+
+      const placeholder = `url("${canvas.toDataURL('image/png')}")`;
+      this.blurhashCache.set(photo.id, placeholder);
+
+      return placeholder;
+    } catch {
+      return '';
+    }
+  }
+
+  protected markPhotoLoaded(photo: Photo): void {
+    this.loadedPhotoIds.add(photo.id);
+  }
+
+  protected isPhotoLoaded(photo: Photo): boolean {
+    return this.loadedPhotoIds.has(photo.id);
+  }
+
+  protected shouldLoadPhoto(photo: Photo): boolean {
+    return this.loadablePhotoIds.has(photo.id);
+  }
+
+  protected getPhotoLoading(index: number): 'eager' | 'lazy' {
+    return index < this.highPriorityPhotoCount ? 'eager' : 'lazy';
+  }
+
+  protected getPhotoFetchPriority(index: number): 'high' | 'auto' {
+    return index < this.highPriorityPhotoCount ? 'high' : 'auto';
   }
 
   private async loadPhotos(): Promise<void> {
@@ -255,6 +358,114 @@ export class PortfolioPageComponent implements AfterViewInit {
 
   private isGalleryKey(value: string): value is GalleryKey {
     return ['home', 'costa', 'montana', 'nocturnas', 'ciudad'].includes(value);
+  }
+
+  private showAdjacentPhoto(direction: -1 | 1): void {
+    if (!this.selectedPhoto) {
+      return;
+    }
+
+    const currentIndex = this.filteredPhotos.findIndex(
+      (photo) => photo.id === this.selectedPhoto?.id
+    );
+    const adjacentPhoto = this.filteredPhotos[currentIndex + direction];
+
+    if (!adjacentPhoto) {
+      return;
+    }
+
+    this.selectedPhoto = adjacentPhoto;
+    this.preloadAdjacentViewerPhotos(adjacentPhoto);
+    this.location.go(
+      this.createPhotoUrl(adjacentPhoto.slug),
+      `view=${encodeURIComponent(this.activeView)}`
+    );
+  }
+
+  private queueInitialPhotos(): void {
+    for (const photo of this.visiblePhotos.slice(0, this.highPriorityPhotoCount)) {
+      this.loadablePhotoIds.add(photo.id);
+    }
+  }
+
+  private createIntersectionObserver(): void {
+    if (!this.document.defaultView || this.intersectionObserver) {
+      return;
+    }
+
+    this.intersectionObserver = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) {
+            continue;
+          }
+
+          const photoId = (entry.target as HTMLElement).dataset['photoId'];
+
+          if (photoId) {
+            this.loadablePhotoIds.add(photoId);
+            this.intersectionObserver?.unobserve(entry.target);
+            this.changeDetector.detectChanges();
+          }
+        }
+      },
+      { rootMargin: '600px 0px' }
+    );
+  }
+
+  private observeRenderedPhotos(): void {
+    this.createIntersectionObserver();
+
+    if (!this.intersectionObserver || !this.photoCardFigures) {
+      return;
+    }
+
+    for (const figure of this.photoCardFigures) {
+      const photoId = figure.nativeElement.dataset['photoId'];
+
+      if (!photoId || this.observedPhotoIds.has(photoId)) {
+        continue;
+      }
+
+      this.observedPhotoIds.add(photoId);
+      this.intersectionObserver.observe(figure.nativeElement);
+    }
+  }
+
+  private preloadUpcomingGalleryPhotos(): void {
+    const photosToPreload = this.filteredPhotos
+      .slice(this.visibleCount, this.visibleCount + 4)
+      .map((photo) => photo.thumb);
+
+    for (const photo of this.visiblePhotos.slice(0, this.highPriorityPhotoCount)) {
+      photosToPreload.push(photo.thumb);
+    }
+
+    this.preloadImageUrls(photosToPreload);
+  }
+
+  private preloadAdjacentViewerPhotos(photo: Photo): void {
+    const currentIndex = this.filteredPhotos.findIndex(
+      (filteredPhoto) => filteredPhoto.id === photo.id
+    );
+
+    this.preloadImageUrls(
+      [this.filteredPhotos[currentIndex - 1]?.src, this.filteredPhotos[currentIndex + 1]?.src]
+        .filter((src): src is string => Boolean(src))
+    );
+  }
+
+  private preloadImageUrls(urls: string[]): void {
+    for (const url of urls) {
+      if (this.preloadedImageUrls.has(url)) {
+        continue;
+      }
+
+      this.preloadedImageUrls.add(url);
+      const image = new Image();
+      image.decoding = 'async';
+      image.src = url;
+    }
   }
 
   private createPhotoUrl(slug: string): string {

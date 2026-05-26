@@ -52,16 +52,30 @@
         @for (photo of visiblePhotos; track trackByPhotoId($index, photo)) {
           <article class="photo-card">
             <figure
+              #photoCardFigure
               (click)="openPhoto(photo)"
               tabindex="0"
               role="button"
+              [attr.data-photo-id]="photo.id"
               (keydown.enter)="openPhoto(photo)"
               (keydown.space)="openPhoto(photo); $event.preventDefault()"
+              [style.--photo-placeholder]="getPhotoPlaceholder(photo)"
             >
+              <div
+                class="photo-placeholder"
+                [class.is-hidden]="isPhotoLoaded(photo)"
+                aria-hidden="true"
+              ></div>
               <img
-                [src]="photo.thumb"
+                [attr.src]="shouldLoadPhoto(photo) ? photo.thumb : null"
                 [alt]="photo.alt"
-                loading="lazy"
+                [attr.width]="photo.width"
+                [attr.height]="photo.height"
+                [attr.loading]="getPhotoLoading($index)"
+                decoding="async"
+                [attr.fetchpriority]="getPhotoFetchPriority($index)"
+                [class.is-loaded]="isPhotoLoaded(photo)"
+                (load)="markPhotoLoaded(photo)"
               />
               <figcaption>
                 <h3>{{ photo.title }}</h3>
@@ -84,7 +98,12 @@
 </main>
 
 @if (selectedPhoto) {
-  <app-photo-viewer [photo]="selectedPhoto" (close)="closePhoto()" />
+  <app-photo-viewer
+    [photo]="selectedPhoto"
+    (close)="closePhoto()"
+    (previous)="showPreviousPhoto()"
+    (next)="showNextPhoto()"
+  />
 }
 
 <footer class="site-footer" id="contacto">

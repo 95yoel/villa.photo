@@ -4,13 +4,54 @@
       X
     </button>
 
-    <div class="viewer-media">
-      <img [src]="photo().src" [alt]="photo().alt" />
+    <div
+      class="viewer-media"
+      (touchstart)="onTouchStart($event)"
+      (touchend)="onTouchEnd($event)"
+      [style.--photo-placeholder]="getPhotoPlaceholder(photo())"
+    >
+      <div
+        class="viewer-placeholder"
+        [class.is-hidden]="isPhotoLoaded(photo())"
+        aria-hidden="true"
+      ></div>
+      <img
+        [src]="photo().src"
+        [alt]="photo().alt"
+        [attr.width]="photo().width"
+        [attr.height]="photo().height"
+        decoding="async"
+        fetchpriority="high"
+        [class.is-loaded]="isPhotoLoaded(photo())"
+        (load)="onImageLoad(photo())"
+      />
+    </div>
+
+    <div class="viewer-controls" aria-label="Navegacion de imagenes">
+      <button
+        type="button"
+        class="viewer-nav"
+        (click)="onPreviousClick()"
+        aria-label="Ver imagen anterior"
+      >
+        &lt;
+      </button>
+
+      <button
+        type="button"
+        class="viewer-nav"
+        (click)="onNextClick()"
+        aria-label="Ver imagen siguiente"
+      >
+        &gt;
+      </button>
     </div>
 
     <div class="viewer-meta">
-      <h2>{{ photo().title }}</h2>
-      <p>{{ photo().location }}</p>
+      <div class="viewer-meta-text">
+        <h2>{{ photo().title }}</h2>
+        <p>{{ photo().location }}</p>
+      </div>
     </div>
   </section>
 </div>
