@@ -1,0 +1,11 @@
+{
+  "CORSRules": [
+    {
+      "AllowedHeaders": ["*"],
+      "AllowedMethods": ["GET", "HEAD"],
+      "AllowedOrigins": ["https://villa.photo", "https://www.villa.photo", "http://localhost:4200"],
+      "ExposeHeaders": ["ETag", "Cache-Control"],
+      "MaxAgeSeconds": 300
+    }
+  ]
+}

@@ -14,15 +14,20 @@ dotenv.config();
 const PROJECT_ROOT = process.cwd();
 const INPUT_DIR = path.join(PROJECT_ROOT, 'tools', 'gallery', 'input');
 const OUTPUT_DIR = path.join(PROJECT_ROOT, 'tools', 'gallery', 'output');
-const PUBLIC_JSON_PATH = path.join(PROJECT_ROOT, 'public', 'photos.json');
 const OUTPUT_JSON_PATH = path.join(OUTPUT_DIR, 'photos.json');
 
 const MAX_WIDTH = 2400;
 const WEBP_QUALITY = 86;
+const IMAGE_CACHE_CONTROL = 'public, max-age=31536000, immutable';
+const JSON_CACHE_CONTROL = 'public, max-age=60, must-revalidate';
 const BLURHASH_SIZE = 32;
 const BLURHASH_COMPONENT_X = 4;
 const BLURHASH_COMPONENT_Y = 3;
 const VALID_CATEGORIES: PhotoCategory[] = ['costa', 'montana', 'nocturnas', 'ciudad'];
+const TRAILING_IMAGE_EXTENSION_PATTERN = /\.(?:jpe?g|png|webp|tiff?)$/i;
+
+sharp.cache(false);
+sharp.concurrency(1);
 
 type EnvConfig = {
   awsProfile: string;
@@ -43,6 +48,7 @@ async function main(): Promise<void> {
 
   console.log('[gallery] Starting gallery build');
   console.log(`[gallery] Reading from ${INPUT_DIR}`);
+  console.log('[gallery] Sharp cache disabled, concurrency set to 1');
 
   await mkdir(OUTPUT_DIR, { recursive: true });
 
@@ -70,7 +76,6 @@ async function main(): Promise<void> {
 
   const serializedPhotos = `${JSON.stringify(photos, null, 2)}\n`;
 
-  await writeFile(PUBLIC_JSON_PATH, serializedPhotos, 'utf8');
   await writeFile(OUTPUT_JSON_PATH, serializedPhotos, 'utf8');
 
   await uploadBuffer(
@@ -78,20 +83,20 @@ async function main(): Promise<void> {
     env.s3Bucket,
     'photos.json',
     Buffer.from(serializedPhotos, 'utf8'),
-    'application/json; charset=utf-8'
+    'application/json; charset=utf-8',
+    JSON_CACHE_CONTROL
   );
 
-  console.log(`[gallery] Wrote ${PUBLIC_JSON_PATH}`);
   console.log(`[gallery] Wrote ${OUTPUT_JSON_PATH}`);
   console.log(`[gallery] Uploaded s3://${env.s3Bucket}/photos.json`);
   console.log('[gallery] Done');
 }
 
 function readEnv(): EnvConfig {
-  const awsProfile = process.env.AWS_PROFILE?.trim();
-  const awsRegion = process.env.AWS_REGION?.trim();
-  const s3Bucket = process.env.S3_BUCKET?.trim();
-  const cdnBaseUrl = process.env.CDN_BASE_URL?.trim().replace(/\/+$/, '');
+  const awsProfile = process.env['AWS_PROFILE']?.trim();
+  const awsRegion = process.env['AWS_REGION']?.trim();
+  const s3Bucket = process.env['S3_BUCKET']?.trim();
+  const cdnBaseUrl = process.env['CDN_BASE_URL']?.trim().replace(/\/+$/, '');
 
   const missing = [
     !awsProfile ? 'AWS_PROFILE' : null,
@@ -125,17 +130,16 @@ async function processImage(
 
   console.log(`[gallery] Processing ${fileName}`);
 
-  const processedBuffer = await sharp(inputFile)
+  const { data: processedBuffer, info } = await sharp(inputFile)
     .rotate()
     .resize({ width: MAX_WIDTH, withoutEnlargement: true })
     .webp({ quality: WEBP_QUALITY })
-    .toBuffer();
+    .toBuffer({ resolveWithObject: true });
 
   await writeFile(outputFilePath, processedBuffer);
 
-  const metadata = await sharp(processedBuffer).metadata();
-  const width = metadata.width ?? 0;
-  const height = metadata.height ?? 0;
+  const width = info.width ?? 0;
+  const height = info.height ?? 0;
 
   if (!width || !height) {
     throw new Error(`Could not read dimensions for ${fileName}`);
@@ -144,7 +148,14 @@ async function processImage(
   const blurhash = await createBlurhash(processedBuffer);
   const dominantColor = await createDominantColor(processedBuffer);
 
-  await uploadBuffer(s3Client, env.s3Bucket, s3Key, processedBuffer, 'image/webp');
+  await uploadBuffer(
+    s3Client,
+    env.s3Bucket,
+    s3Key,
+    processedBuffer,
+    'image/webp',
+    IMAGE_CACHE_CONTROL
+  );
 
   console.log(`[gallery] Uploaded s3://${env.s3Bucket}/${s3Key}`);
 
@@ -183,14 +194,20 @@ function parseFilename(fileName: string): ParsedFilename {
     );
   }
 
-  const slug = normalizeSlug(titleSegment);
+  const cleanTitleSegment = stripTrailingImageExtension(titleSegment);
+  const cleanLocationSegment = stripTrailingImageExtension(locationSegment);
+  const slug = normalizeSlug(cleanTitleSegment);
 
   return {
     slug,
-    title: toDisplayText(titleSegment),
+    title: toDisplayText(cleanTitleSegment),
     category,
-    location: toDisplayText(locationSegment)
+    location: toDisplayText(cleanLocationSegment)
   };
+}
+
+function stripTrailingImageExtension(value: string): string {
+  return value.replace(TRAILING_IMAGE_EXTENSION_PATTERN, '');
 }
 
 function normalizeSlug(value: string): string {
@@ -228,7 +245,9 @@ async function createBlurhash(imageBuffer: Buffer): Promise<string> {
 }
 
 async function createDominantColor(imageBuffer: Buffer): Promise<string> {
-  const stats = await sharp(imageBuffer).stats();
+  const stats = await sharp(imageBuffer)
+    .resize(64, 64, { fit: 'inside' })
+    .stats();
   const dominant = stats.dominant;
 
   return `#${[dominant.r, dominant.g, dominant.b]
@@ -241,14 +260,16 @@ async function uploadBuffer(
   bucket: string,
   key: string,
   body: Buffer,
-  contentType: string
+  contentType: string,
+  cacheControl?: string
 ): Promise<void> {
   await s3Client.send(
     new PutObjectCommand({
       Bucket: bucket,
       Key: key,
       Body: body,
-      ContentType: contentType
+      ContentType: contentType,
+      CacheControl: cacheControl
     })
   );
 }

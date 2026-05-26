@@ -12,6 +12,8 @@ import { firstValueFrom } from 'rxjs';
 import { Photo, PhotoCategory } from './models/photo.model';
 import { PhotoViewerComponent } from './photo-viewer.component';
 
+const PHOTOS_MANIFEST_URL = 'https://d1fmx8ncgs4siw.cloudfront.net/photos.json';
+
 type GalleryKey = 'home' | PhotoCategory;
 
 interface NavItem {
@@ -201,7 +203,7 @@ export class PortfolioPageComponent implements AfterViewInit {
 
     try {
       this.photos = await firstValueFrom(
-        this.http.get<Photo[]>('photos.json')
+        this.http.get<Photo[]>(PHOTOS_MANIFEST_URL)
       );
     } catch {
       this.loadError = true;
