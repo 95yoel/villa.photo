@@ -114,6 +114,19 @@ export class PortfolioPageComponent implements AfterViewInit {
     return this.visibleCount < this.filteredPhotos.length;
   }
 
+  protected get hasPreviousSelectedPhoto(): boolean {
+    return this.getSelectedPhotoIndex() > 0;
+  }
+
+  protected get hasNextSelectedPhoto(): boolean {
+    const selectedPhotoIndex = this.getSelectedPhotoIndex();
+
+    return (
+      selectedPhotoIndex >= 0 &&
+      selectedPhotoIndex < this.filteredPhotos.length - 1
+    );
+  }
+
   protected selectView(view: GalleryKey): void {
     this.activeView = view;
     this.visibleCount = this.initialVisibleCount;
@@ -333,9 +346,7 @@ export class PortfolioPageComponent implements AfterViewInit {
     const matchedPhoto = this.photos.find((photo) => photo.slug === slug);
 
     if (!matchedPhoto) {
-      this.router.navigate(['/'], {
-        queryParams: this.activeView === 'home' ? {} : { view: this.activeView }
-      });
+      this.router.navigate(['/404']);
       return;
     }
 
@@ -379,6 +390,16 @@ export class PortfolioPageComponent implements AfterViewInit {
     this.location.go(
       this.createPhotoUrl(adjacentPhoto.slug),
       `view=${encodeURIComponent(this.activeView)}`
+    );
+  }
+
+  private getSelectedPhotoIndex(): number {
+    if (!this.selectedPhoto) {
+      return -1;
+    }
+
+    return this.filteredPhotos.findIndex(
+      (photo) => photo.id === this.selectedPhoto?.id
     );
   }
 

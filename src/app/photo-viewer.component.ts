@@ -18,6 +18,8 @@ import { Photo } from './models/photo.model';
 })
 export class PhotoViewerComponent {
   readonly photo = input.required<Photo>();
+  readonly hasPrevious = input(false);
+  readonly hasNext = input(false);
   readonly close = output<void>();
   readonly previous = output<void>();
   readonly next = output<void>();
@@ -53,12 +55,20 @@ export class PhotoViewerComponent {
 
   @HostListener('document:keydown.arrowleft', ['$event'])
   protected onArrowLeft(event: KeyboardEvent): void {
+    if (!this.hasPrevious()) {
+      return;
+    }
+
     event.preventDefault();
     this.previous.emit();
   }
 
   @HostListener('document:keydown.arrowright', ['$event'])
   protected onArrowRight(event: KeyboardEvent): void {
+    if (!this.hasNext()) {
+      return;
+    }
+
     event.preventDefault();
     this.next.emit();
   }
@@ -72,10 +82,18 @@ export class PhotoViewerComponent {
   }
 
   protected onPreviousClick(): void {
+    if (!this.hasPrevious()) {
+      return;
+    }
+
     this.previous.emit();
   }
 
   protected onNextClick(): void {
+    if (!this.hasNext()) {
+      return;
+    }
+
     this.next.emit();
   }
 
@@ -184,7 +202,15 @@ export class PhotoViewerComponent {
     }
 
     if (deltaX < 0) {
+      if (!this.hasNext()) {
+        return;
+      }
+
       this.next.emit();
+      return;
+    }
+
+    if (!this.hasPrevious()) {
       return;
     }
 

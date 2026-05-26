@@ -46,23 +46,31 @@
     </div>
 
     <div class="viewer-controls" aria-label="Navegacion de imagenes">
-      <button
-        type="button"
-        class="viewer-nav"
-        (click)="onPreviousClick()"
-        aria-label="Ver imagen anterior"
-      >
-        &lt;
-      </button>
+      @if (hasPrevious()) {
+        <button
+          type="button"
+          class="viewer-nav"
+          (click)="onPreviousClick()"
+          aria-label="Ver imagen anterior"
+        >
+          &lt;
+        </button>
+      } @else {
+        <span class="viewer-nav-spacer" aria-hidden="true"></span>
+      }
 
-      <button
-        type="button"
-        class="viewer-nav"
-        (click)="onNextClick()"
-        aria-label="Ver imagen siguiente"
-      >
-        &gt;
-      </button>
+      @if (hasNext()) {
+        <button
+          type="button"
+          class="viewer-nav"
+          (click)="onNextClick()"
+          aria-label="Ver imagen siguiente"
+        >
+          &gt;
+        </button>
+      } @else {
+        <span class="viewer-nav-spacer" aria-hidden="true"></span>
+      }
     </div>
 
     <div class="viewer-meta">

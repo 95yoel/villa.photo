@@ -63,11 +63,15 @@
   outline-offset: 3px;
 }
 
-.viewer-nav {
+.viewer-nav,
+.viewer-nav-spacer {
   display: grid;
   place-items: center;
   width: 1.85rem;
   height: 1.85rem;
+}
+
+.viewer-nav {
   border: 1px solid var(--color-border-subtle);
   border-radius: 999px;
   background: transparent;
