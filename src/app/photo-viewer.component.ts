@@ -8,6 +8,7 @@ import {
   output
 } from '@angular/core';
 import { decode } from 'blurhash';
+import { AnalyticsService } from './analytics.service';
 import { Photo } from './models/photo.model';
 
 @Component({
@@ -20,6 +21,8 @@ export class PhotoViewerComponent {
   readonly photo = input.required<Photo>();
   readonly hasPrevious = input(false);
   readonly hasNext = input(false);
+  readonly position = input(0);
+  readonly total = input(0);
   readonly close = output<void>();
   readonly previous = output<void>();
   readonly next = output<void>();
@@ -37,7 +40,8 @@ export class PhotoViewerComponent {
 
   constructor(
     @Inject(DOCUMENT) private readonly document: Document,
-    destroyRef: DestroyRef
+    destroyRef: DestroyRef,
+    private readonly analytics: AnalyticsService
   ) {
     const previousOverflow = this.document.body.style.overflow;
 
@@ -111,10 +115,12 @@ export class PhotoViewerComponent {
     try {
       if (navigator.share) {
         await navigator.share(shareData);
+        this.trackShare('native_share');
         return;
       }
 
       await navigator.clipboard.writeText(shareUrl);
+      this.trackShare('clipboard');
       this.setTemporaryShareState('copied');
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
@@ -233,5 +239,16 @@ export class PhotoViewerComponent {
       this.shareState = 'idle';
       this.shareStateTimeout = null;
     }, 1600);
+  }
+
+  private trackShare(method: 'native_share' | 'clipboard'): void {
+    const photo = this.photo();
+
+    this.analytics.trackEvent('photo_share', {
+      method,
+      photo_slug: photo.slug,
+      photo_title: photo.title,
+      category: photo.category
+    });
   }
 }

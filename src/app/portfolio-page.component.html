@@ -102,6 +102,8 @@
     [photo]="selectedPhoto"
     [hasPrevious]="hasPreviousSelectedPhoto"
     [hasNext]="hasNextSelectedPhoto"
+    [position]="selectedPhotoPosition"
+    [total]="selectedPhotoTotal"
     (close)="closePhoto()"
     (previous)="showPreviousPhoto()"
     (next)="showNextPhoto()"
@@ -118,7 +120,7 @@
       <div>
         <p class="footer-label">Email</p>
         <div class="contact-line">
-          <a href="mailto:hello@yoelvilla.dev">hello&#64;yoelvilla.dev</a>
+          <a href="mailto:hello@yoelvilla.dev" (click)="trackEmailClick()">hello&#64;yoelvilla.dev</a>
           <button type="button" class="copy-button" (click)="copyText('hello@yoelvilla.dev', 'email')">
             {{ copiedField === 'email' ? 'Copiado' : 'Copiar' }}
           </button>
@@ -127,7 +129,7 @@
       <div>
         <p class="footer-label">Instagram</p>
         <div class="contact-line">
-          <a href="https://instagram.com/villa.landscapes" target="_blank" rel="noreferrer">instagram.com/villa.landscapes</a>
+          <a href="https://instagram.com/villa.landscapes" target="_blank" rel="noreferrer" (click)="trackExternalLink('instagram')">instagram.com/villa.landscapes</a>
           <button
             type="button"
             class="copy-button"
@@ -148,7 +150,7 @@
     <hr class="footer-signoff-line" />
     <p>
       Desarrollada por
-      <a href="https://yoelvilla.dev/" target="_blank" rel="noreferrer">yoelvilla.dev</a>
+      <a href="https://yoelvilla.dev/" target="_blank" rel="noreferrer" (click)="trackExternalLink('yoelvilla.dev')">yoelvilla.dev</a>
     </p>
   </div>
 </footer>

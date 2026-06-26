@@ -45,7 +45,7 @@
       />
     </div>
 
-    <div class="viewer-controls" aria-label="Navegacion de imagenes">
+    <div class="viewer-controls" aria-label="Navegación de imágenes">
       @if (hasPrevious()) {
         <button
           type="button"
@@ -57,6 +57,12 @@
         </button>
       } @else {
         <span class="viewer-nav-spacer" aria-hidden="true"></span>
+      }
+
+      @if (total() > 0) {
+        <span class="viewer-counter" [attr.aria-label]="'Imagen ' + position() + ' de ' + total()">
+          {{ position() }} / {{ total() }}
+        </span>
       }
 
       @if (hasNext()) {

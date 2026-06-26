@@ -14,12 +14,14 @@ import {
 import { ActivatedRoute, Router } from '@angular/router';
 import { decode } from 'blurhash';
 import { firstValueFrom } from 'rxjs';
+import { AnalyticsService } from './analytics.service';
 import { Photo, PhotoCategory } from './models/photo.model';
 import { PhotoViewerComponent } from './photo-viewer.component';
 
 const PHOTOS_MANIFEST_URL = 'https://d1fmx8ncgs4siw.cloudfront.net/photos.json';
 
 type GalleryKey = 'home' | PhotoCategory;
+const GALLERY_KEYS: GalleryKey[] = ['home', 'costa', 'montana', 'nocturnas', 'ciudad'];
 
 interface NavItem {
   id: 'home' | GalleryKey | 'contacto';
@@ -38,6 +40,7 @@ export class PortfolioPageComponent implements AfterViewInit {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly changeDetector = inject(ChangeDetectorRef);
+  private readonly analytics = inject(AnalyticsService);
 
   protected readonly navItems: NavItem[] = [
     { id: 'home', label: 'Home' },
@@ -127,6 +130,16 @@ export class PortfolioPageComponent implements AfterViewInit {
     );
   }
 
+  protected get selectedPhotoPosition(): number {
+    const selectedPhotoIndex = this.getSelectedPhotoIndex();
+
+    return selectedPhotoIndex < 0 ? 0 : selectedPhotoIndex + 1;
+  }
+
+  protected get selectedPhotoTotal(): number {
+    return this.filteredPhotos.length;
+  }
+
   protected selectView(view: GalleryKey): void {
     this.activeView = view;
     this.visibleCount = this.initialVisibleCount;
@@ -136,7 +149,8 @@ export class PortfolioPageComponent implements AfterViewInit {
       this.observeRenderedPhotos();
       this.preloadUpcomingGalleryPhotos();
     });
-    this.syncQueryView();
+    this.analytics.trackEvent('gallery_view_select', { view });
+    this.syncRouteView();
   }
 
   protected scrollToHome(): void {
@@ -148,12 +162,14 @@ export class PortfolioPageComponent implements AfterViewInit {
       this.observeRenderedPhotos();
       this.preloadUpcomingGalleryPhotos();
     });
-    this.syncQueryView();
+    this.analytics.trackEvent('gallery_view_select', { view: 'home' });
+    this.syncRouteView();
     this.document.defaultView?.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   protected scrollToContact(): void {
     this.isNavigatingToContact = true;
+    this.analytics.trackEvent('contact_section_open', { source: 'navigation' });
     this.document.getElementById('contacto')?.scrollIntoView({
       behavior: 'smooth',
       block: 'start'
@@ -196,18 +212,22 @@ export class PortfolioPageComponent implements AfterViewInit {
   protected openPhoto(photo: Photo): void {
     this.selectedPhoto = photo;
     this.preloadAdjacentViewerPhotos(photo);
-    this.location.go(
-      this.createPhotoUrl(photo.slug),
-      `view=${encodeURIComponent(this.activeView)}`
-    );
+    this.analytics.trackEvent('photo_open', {
+      photo_slug: photo.slug,
+      photo_title: photo.title,
+      category: photo.category,
+      location: photo.location,
+      gallery_view: this.activeView
+    });
+    this.location.go(this.createPhotoUrl(photo.slug));
   }
 
   protected closePhoto(): void {
     this.selectedPhoto = null;
-    this.location.go(
-      '/',
-      this.activeView === 'home' ? '' : `view=${encodeURIComponent(this.activeView)}`
-    );
+    this.analytics.trackEvent('photo_close', {
+      gallery_view: this.activeView
+    });
+    this.location.go(this.createGalleryUrl(this.activeView));
   }
 
   protected showPreviousPhoto(): void {
@@ -225,6 +245,9 @@ export class PortfolioPageComponent implements AfterViewInit {
     try {
       await navigator.clipboard.writeText(value);
       this.copiedField = field;
+      this.analytics.trackEvent('contact_copy', {
+        field
+      });
 
       window.setTimeout(() => {
         if (this.copiedField === field) {
@@ -296,6 +319,18 @@ export class PortfolioPageComponent implements AfterViewInit {
     }
   }
 
+  protected trackExternalLink(destination: 'instagram' | 'yoelvilla.dev'): void {
+    this.analytics.trackEvent('external_link_click', {
+      destination
+    });
+  }
+
+  protected trackEmailClick(): void {
+    this.analytics.trackEvent('contact_link_click', {
+      destination: 'email'
+    });
+  }
+
   protected markPhotoLoaded(photo: Photo): void {
     this.loadedPhotoIds.add(photo.id);
   }
@@ -334,9 +369,15 @@ export class PortfolioPageComponent implements AfterViewInit {
   private syncStateFromRoute(): void {
     const requestedView = this.route.snapshot.queryParamMap.get('view');
     const slug = this.route.snapshot.paramMap.get('slug');
+    const routePath = this.route.snapshot.url[0]?.path;
 
-    if (requestedView && this.isGalleryKey(requestedView)) {
+    if (routePath && this.isGalleryKey(routePath)) {
+      this.activeView = routePath;
+    } else if (requestedView && this.isGalleryKey(requestedView)) {
       this.activeView = requestedView;
+      if (!slug) {
+        this.location.replaceState(this.createGalleryUrl(requestedView));
+      }
     }
 
     if (!slug) {
@@ -357,18 +398,16 @@ export class PortfolioPageComponent implements AfterViewInit {
     this.selectedPhoto = matchedPhoto;
   }
 
-  private syncQueryView(): void {
+  private syncRouteView(): void {
     if (this.selectedPhoto) {
       return;
     }
 
-    this.router.navigate(['/'], {
-      queryParams: this.activeView === 'home' ? {} : { view: this.activeView }
-    });
+    this.router.navigateByUrl(this.createGalleryUrl(this.activeView));
   }
 
   private isGalleryKey(value: string): value is GalleryKey {
-    return ['home', 'costa', 'montana', 'nocturnas', 'ciudad'].includes(value);
+    return GALLERY_KEYS.includes(value as GalleryKey);
   }
 
   private showAdjacentPhoto(direction: -1 | 1): void {
@@ -387,10 +426,14 @@ export class PortfolioPageComponent implements AfterViewInit {
 
     this.selectedPhoto = adjacentPhoto;
     this.preloadAdjacentViewerPhotos(adjacentPhoto);
-    this.location.go(
-      this.createPhotoUrl(adjacentPhoto.slug),
-      `view=${encodeURIComponent(this.activeView)}`
-    );
+    this.analytics.trackEvent('photo_navigate', {
+      direction: direction === -1 ? 'previous' : 'next',
+      photo_slug: adjacentPhoto.slug,
+      photo_title: adjacentPhoto.title,
+      category: adjacentPhoto.category,
+      gallery_view: this.activeView
+    });
+    this.location.go(this.createPhotoUrl(adjacentPhoto.slug));
   }
 
   private getSelectedPhotoIndex(): number {
@@ -491,5 +534,9 @@ export class PortfolioPageComponent implements AfterViewInit {
 
   private createPhotoUrl(slug: string): string {
     return `/foto/${encodeURIComponent(slug)}`;
+  }
+
+  private createGalleryUrl(view: GalleryKey): string {
+    return view === 'home' ? '/' : `/${view}`;
   }
 }
