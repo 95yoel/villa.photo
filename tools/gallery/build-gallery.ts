@@ -1,7 +1,12 @@
 import { mkdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
-import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client
+} from '@aws-sdk/client-s3';
 import { fromIni } from '@aws-sdk/credential-providers';
 import { encode } from 'blurhash';
 import dotenv from 'dotenv';
@@ -17,7 +22,9 @@ const OUTPUT_DIR = path.join(PROJECT_ROOT, 'tools', 'gallery', 'output');
 const OUTPUT_JSON_PATH = path.join(OUTPUT_DIR, 'photos.json');
 
 const MAX_WIDTH = 2400;
+const THUMB_MAX_WIDTH = 720;
 const WEBP_QUALITY = 86;
+const THUMB_WEBP_QUALITY = 74;
 const IMAGE_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 const JSON_CACHE_CONTROL = 'public, max-age=60, must-revalidate';
 const BLURHASH_SIZE = 32;
@@ -83,10 +90,25 @@ async function main(): Promise<void> {
     const sourceSizeBytes = (await stat(inputFile)).size;
     const existingPhoto = existingPhotosBySlug.get(parsedFile.slug);
     const s3Key = `photos/${parsedFile.slug}.webp`;
+    const thumbS3Key = `photos/thumbs/${parsedFile.slug}.webp`;
 
     if (existingPhoto?.sourceSizeBytes === sourceSizeBytes) {
-      console.log(`[gallery] Skipping ${fileName}; source file is unchanged`);
-      photos.push(createPhotoFromExisting(parsedFile, existingPhoto, env, s3Key));
+      const hasThumb = await hasExpectedThumb(
+        s3Client,
+        env.s3Bucket,
+        existingPhoto,
+        env,
+        thumbS3Key
+      );
+
+      if (!hasThumb) {
+        console.log(`[gallery] Generating missing thumbnail for ${fileName}`);
+        await processThumbnail(inputFile, parsedFile, env, s3Client);
+      } else {
+        console.log(`[gallery] Skipping ${fileName}; source file and thumbnail are unchanged`);
+      }
+
+      photos.push(createPhotoFromExisting(parsedFile, existingPhoto, env, s3Key, thumbS3Key));
       continue;
     }
 
@@ -205,6 +227,7 @@ async function processImage(
   const outputFileName = `${parsedFile.slug}.webp`;
   const outputFilePath = path.join(OUTPUT_DIR, outputFileName);
   const s3Key = `photos/${outputFileName}`;
+  const thumbS3Key = `photos/thumbs/${outputFileName}`;
 
   console.log(`[gallery] Processing ${fileName}`);
 
@@ -237,6 +260,8 @@ async function processImage(
 
   console.log(`[gallery] Uploaded s3://${env.s3Bucket}/${s3Key}`);
 
+  await processThumbnail(inputFile, parsedFile, env, s3Client);
+
   return {
     id: parsedFile.slug,
     slug: parsedFile.slug,
@@ -244,7 +269,7 @@ async function processImage(
     category: parsedFile.category,
     location: parsedFile.location,
     src: `${env.cdnBaseUrl}/${s3Key}`,
-    thumb: `${env.cdnBaseUrl}/${s3Key}`,
+    thumb: `${env.cdnBaseUrl}/${thumbS3Key}`,
     alt: `${parsedFile.title} en ${parsedFile.location}`,
     width,
     height,
@@ -258,7 +283,8 @@ function createPhotoFromExisting(
   parsedFile: ParsedFilename,
   existingPhoto: GalleryPhoto,
   env: EnvConfig,
-  s3Key: string
+  s3Key: string,
+  thumbS3Key: string
 ): GalleryPhoto {
   return {
     ...existingPhoto,
@@ -268,9 +294,65 @@ function createPhotoFromExisting(
     category: parsedFile.category,
     location: parsedFile.location,
     src: `${env.cdnBaseUrl}/${s3Key}`,
-    thumb: `${env.cdnBaseUrl}/${s3Key}`,
+    thumb: `${env.cdnBaseUrl}/${thumbS3Key}`,
     alt: `${parsedFile.title} en ${parsedFile.location}`
   };
+}
+
+async function processThumbnail(
+  inputFile: string,
+  parsedFile: ParsedFilename,
+  env: EnvConfig,
+  s3Client: S3Client
+): Promise<void> {
+  const outputFileName = `${parsedFile.slug}.webp`;
+  const thumbOutputFileName = `${parsedFile.slug}.thumb.webp`;
+  const thumbOutputFilePath = path.join(OUTPUT_DIR, thumbOutputFileName);
+  const thumbS3Key = `photos/thumbs/${outputFileName}`;
+
+  const thumbnailBuffer = await sharp(inputFile)
+    .rotate()
+    .resize({ width: THUMB_MAX_WIDTH, withoutEnlargement: true })
+    .webp({ quality: THUMB_WEBP_QUALITY })
+    .toBuffer();
+
+  await writeFile(thumbOutputFilePath, thumbnailBuffer);
+
+  await uploadBuffer(
+    s3Client,
+    env.s3Bucket,
+    thumbS3Key,
+    thumbnailBuffer,
+    'image/webp',
+    IMAGE_CACHE_CONTROL
+  );
+
+  console.log(`[gallery] Uploaded s3://${env.s3Bucket}/${thumbS3Key}`);
+}
+
+async function hasExpectedThumb(
+  s3Client: S3Client,
+  bucket: string,
+  existingPhoto: GalleryPhoto,
+  env: EnvConfig,
+  thumbS3Key: string
+): Promise<boolean> {
+  if (existingPhoto.thumb !== `${env.cdnBaseUrl}/${thumbS3Key}`) {
+    return false;
+  }
+
+  try {
+    await s3Client.send(
+      new HeadObjectCommand({
+        Bucket: bucket,
+        Key: thumbS3Key
+      })
+    );
+
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function parseFilename(fileName: string): ParsedFilename {
