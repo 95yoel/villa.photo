@@ -3,7 +3,7 @@
     {
       "AllowedHeaders": ["*"],
       "AllowedMethods": ["GET", "HEAD"],
-      "AllowedOrigins": ["https://villa.photo", "https://www.villa.photo", "http://localhost:4200"],
+      "AllowedOrigins": ["*"],
       "ExposeHeaders": ["ETag", "Cache-Control"],
       "MaxAgeSeconds": 300
     }
