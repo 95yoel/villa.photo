@@ -1,5 +1,4 @@
 import { CommonModule, DOCUMENT, Location } from '@angular/common';
-import { HttpClient } from '@angular/common/http';
 import {
   AfterViewInit,
   ChangeDetectorRef,
@@ -13,12 +12,12 @@ import {
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { decode } from 'blurhash';
-import { firstValueFrom } from 'rxjs';
 import { AnalyticsService } from './analytics.service';
 import { Photo, PhotoCategory } from './models/photo.model';
 import { PhotoViewerComponent } from './photo-viewer.component';
 
-const PHOTOS_MANIFEST_URL = 'https://d1fmx8ncgs4siw.cloudfront.net/photos.json';
+const PHOTOS_MANIFEST_SCRIPT_URL = 'https://d1fmx8ncgs4siw.cloudfront.net/photos.js';
+const PHOTOS_MANIFEST_GLOBAL_KEY = '__VILLA_PHOTOS__';
 
 type GalleryKey = 'home' | PhotoCategory;
 const GALLERY_KEYS: GalleryKey[] = ['home', 'costa', 'montana', 'nocturnas', 'ciudad'];
@@ -28,6 +27,11 @@ interface NavItem {
   label: string;
 }
 
+type PhotosManifestWindow = Window &
+  typeof globalThis & {
+    [PHOTOS_MANIFEST_GLOBAL_KEY]?: Photo[];
+  };
+
 @Component({
   selector: 'app-portfolio-page',
   imports: [CommonModule, PhotoViewerComponent],
@@ -35,7 +39,6 @@ interface NavItem {
   styleUrl: './portfolio-page.component.css'
 })
 export class PortfolioPageComponent implements AfterViewInit {
-  private readonly http = inject(HttpClient);
   private readonly location = inject(Location);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
@@ -356,14 +359,48 @@ export class PortfolioPageComponent implements AfterViewInit {
     this.loadError = false;
 
     try {
-      this.photos = await firstValueFrom(
-        this.http.get<Photo[]>(PHOTOS_MANIFEST_URL)
-      );
+      this.photos = await this.loadPhotosManifestScript();
     } catch {
       this.loadError = true;
     } finally {
       this.isLoading = false;
     }
+  }
+
+  private loadPhotosManifestScript(): Promise<Photo[]> {
+    const defaultView = this.document.defaultView as PhotosManifestWindow | null;
+
+    return new Promise((resolve, reject) => {
+      if (!defaultView) {
+        reject(new Error('Window is not available'));
+        return;
+      }
+
+      delete defaultView[PHOTOS_MANIFEST_GLOBAL_KEY];
+
+      const script = this.document.createElement('script');
+      script.async = true;
+      script.src = PHOTOS_MANIFEST_SCRIPT_URL;
+
+      script.addEventListener('load', () => {
+        const photos = defaultView[PHOTOS_MANIFEST_GLOBAL_KEY];
+        script.remove();
+
+        if (!Array.isArray(photos)) {
+          reject(new Error('Invalid photos manifest'));
+          return;
+        }
+
+        resolve(photos);
+      });
+
+      script.addEventListener('error', () => {
+        script.remove();
+        reject(new Error('Could not load photos manifest'));
+      });
+
+      this.document.head.appendChild(script);
+    });
   }
 
   private syncStateFromRoute(): void {

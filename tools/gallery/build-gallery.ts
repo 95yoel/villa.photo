@@ -20,6 +20,7 @@ const PROJECT_ROOT = process.cwd();
 const INPUT_DIR = path.join(PROJECT_ROOT, 'tools', 'gallery', 'input');
 const OUTPUT_DIR = path.join(PROJECT_ROOT, 'tools', 'gallery', 'output');
 const OUTPUT_JSON_PATH = path.join(OUTPUT_DIR, 'photos.json');
+const OUTPUT_SCRIPT_PATH = path.join(OUTPUT_DIR, 'photos.js');
 
 const MAX_WIDTH = 2400;
 const THUMB_MAX_WIDTH = 720;
@@ -123,8 +124,10 @@ async function main(): Promise<void> {
   }
 
   const serializedPhotos = `${JSON.stringify(photos, null, 2)}\n`;
+  const serializedPhotosScript = createPhotosScript(serializedPhotos);
 
   await writeFile(OUTPUT_JSON_PATH, serializedPhotos, 'utf8');
+  await writeFile(OUTPUT_SCRIPT_PATH, serializedPhotosScript, 'utf8');
 
   await uploadBuffer(
     s3Client,
@@ -135,8 +138,19 @@ async function main(): Promise<void> {
     JSON_CACHE_CONTROL
   );
 
+  await uploadBuffer(
+    s3Client,
+    env.s3Bucket,
+    'photos.js',
+    Buffer.from(serializedPhotosScript, 'utf8'),
+    'application/javascript; charset=utf-8',
+    JSON_CACHE_CONTROL
+  );
+
   console.log(`[gallery] Wrote ${OUTPUT_JSON_PATH}`);
+  console.log(`[gallery] Wrote ${OUTPUT_SCRIPT_PATH}`);
   console.log(`[gallery] Uploaded s3://${env.s3Bucket}/photos.json`);
+  console.log(`[gallery] Uploaded s3://${env.s3Bucket}/photos.js`);
   console.log('[gallery] Done');
 }
 
@@ -297,6 +311,17 @@ function createPhotoFromExisting(
     thumb: `${env.cdnBaseUrl}/${thumbS3Key}`,
     alt: `${parsedFile.title} en ${parsedFile.location}`
   };
+}
+
+function createPhotosScript(serializedPhotos: string): string {
+  const safeSerializedPhotos = serializedPhotos.replace(/<\/script/gi, '<\\/script');
+
+  return [
+    'globalThis.__VILLA_PHOTOS__ = ',
+    safeSerializedPhotos.trimEnd(),
+    ';',
+    ''
+  ].join('');
 }
 
 async function processThumbnail(
