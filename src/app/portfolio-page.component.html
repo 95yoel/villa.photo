@@ -67,7 +67,7 @@
                 aria-hidden="true"
               ></div>
               <img
-                [attr.src]="shouldLoadPhoto(photo) ? photo.thumb : null"
+                [attr.src]="shouldLoadPhoto(photo) ? getGalleryPhotoSrc(photo) : null"
                 [alt]="photo.alt"
                 [attr.width]="photo.width"
                 [attr.height]="photo.height"
@@ -75,7 +75,7 @@
                 decoding="async"
                 [attr.fetchpriority]="getPhotoFetchPriority($index)"
                 [class.is-loaded]="isPhotoLoaded(photo)"
-                (load)="markPhotoLoaded(photo)"
+                (load)="handleGalleryPhotoLoad(photo)"
               />
               <figcaption>
                 <h3>{{ photo.title }}</h3>

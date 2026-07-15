@@ -66,6 +66,7 @@ export class PortfolioPageComponent implements AfterViewInit {
   protected readonly initialVisibleCount = 10;
   protected readonly maxAutoLoads = 2;
   protected readonly highPriorityPhotoCount = 4;
+  protected readonly fullResolutionPreloadConcurrency = 2;
 
   protected activeView: GalleryKey = 'home';
   protected photos: Photo[] = [];
@@ -81,7 +82,12 @@ export class PortfolioPageComponent implements AfterViewInit {
   private readonly loadedPhotoIds = new Set<string>();
   private readonly loadablePhotoIds = new Set<string>();
   private readonly observedPhotoIds = new Set<string>();
+  private readonly fullResolutionPhotoIds = new Set<string>();
+  private readonly queuedFullResolutionPhotoIds = new Set<string>();
+  private readonly fullResolutionPreloadQueue: Photo[] = [];
+  private readonly loadedFullResolutionImageUrls = new Set<string>();
   private readonly preloadedImageUrls = new Set<string>();
+  private activeFullResolutionPreloads = 0;
   private intersectionObserver: IntersectionObserver | null = null;
 
   @ViewChildren('photoCardFigure', { read: ElementRef })
@@ -334,12 +340,17 @@ export class PortfolioPageComponent implements AfterViewInit {
     });
   }
 
-  protected markPhotoLoaded(photo: Photo): void {
+  protected handleGalleryPhotoLoad(photo: Photo): void {
     this.loadedPhotoIds.add(photo.id);
+    this.queueFullResolutionPhoto(photo);
   }
 
   protected isPhotoLoaded(photo: Photo): boolean {
     return this.loadedPhotoIds.has(photo.id);
+  }
+
+  protected getGalleryPhotoSrc(photo: Photo): string {
+    return this.fullResolutionPhotoIds.has(photo.id) ? photo.src : photo.thumb;
   }
 
   protected shouldLoadPhoto(photo: Photo): boolean {
@@ -567,6 +578,69 @@ export class PortfolioPageComponent implements AfterViewInit {
       image.decoding = 'async';
       image.src = url;
     }
+  }
+
+  private queueFullResolutionPhoto(photo: Photo): void {
+    if (
+      photo.src === photo.thumb ||
+      this.fullResolutionPhotoIds.has(photo.id) ||
+      this.queuedFullResolutionPhotoIds.has(photo.id)
+    ) {
+      if (photo.src === photo.thumb) {
+        this.fullResolutionPhotoIds.add(photo.id);
+      }
+
+      return;
+    }
+
+    this.queuedFullResolutionPhotoIds.add(photo.id);
+    this.fullResolutionPreloadQueue.push(photo);
+    window.setTimeout(() => this.drainFullResolutionPreloadQueue());
+  }
+
+  private drainFullResolutionPreloadQueue(): void {
+    while (
+      this.activeFullResolutionPreloads < this.fullResolutionPreloadConcurrency &&
+      this.fullResolutionPreloadQueue.length > 0
+    ) {
+      const photo = this.fullResolutionPreloadQueue.shift();
+
+      if (!photo) {
+        continue;
+      }
+
+      this.preloadFullResolutionPhoto(photo);
+    }
+  }
+
+  private preloadFullResolutionPhoto(photo: Photo): void {
+    if (this.loadedFullResolutionImageUrls.has(photo.src)) {
+      this.fullResolutionPhotoIds.add(photo.id);
+      this.changeDetector.detectChanges();
+      return;
+    }
+
+    this.activeFullResolutionPreloads += 1;
+
+    const image = new Image();
+    image.decoding = 'async';
+    image.setAttribute('fetchpriority', 'low');
+
+    image.onload = () => {
+      this.loadedFullResolutionImageUrls.add(photo.src);
+      this.preloadedImageUrls.add(photo.src);
+      this.fullResolutionPhotoIds.add(photo.id);
+      this.activeFullResolutionPreloads -= 1;
+      this.changeDetector.detectChanges();
+      this.drainFullResolutionPreloadQueue();
+    };
+
+    image.onerror = () => {
+      this.activeFullResolutionPreloads -= 1;
+      this.drainFullResolutionPreloadQueue();
+    };
+
+    image.src = photo.src;
   }
 
   private createPhotoUrl(slug: string): string {
